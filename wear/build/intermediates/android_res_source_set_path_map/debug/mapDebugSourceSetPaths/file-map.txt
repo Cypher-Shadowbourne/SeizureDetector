@@ -1,0 +1,7 @@
+com.pbess.qrphotostudioultra.seizuredetector.wear-pngs-0 E:\SeizureDetector\wear\build\generated\res\pngs\debug
+com.pbess.qrphotostudioultra.seizuredetector.wear-updated_navigation_xml-1 E:\SeizureDetector\wear\build\generated\updated_navigation_xml\debug
+com.pbess.qrphotostudioultra.seizuredetector.wear-packageDebugResources-2 E:\SeizureDetector\wear\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.pbess.qrphotostudioultra.seizuredetector.wear-packageDebugResources-3 E:\SeizureDetector\wear\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.pbess.qrphotostudioultra.seizuredetector.wear-debug-4 E:\SeizureDetector\wear\build\intermediates\merged_res\debug\mergeDebugResources
+com.pbess.qrphotostudioultra.seizuredetector.wear-debug-5 E:\SeizureDetector\wear\src\debug\res
+com.pbess.qrphotostudioultra.seizuredetector.wear-main-6 E:\SeizureDetector\wear\src\main\res

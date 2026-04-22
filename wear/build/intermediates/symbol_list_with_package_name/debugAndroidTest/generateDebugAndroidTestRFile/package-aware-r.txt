@@ -1,0 +1,1 @@
+com.pbess.qrphotostudioultra.seizuredetector.wear.test
