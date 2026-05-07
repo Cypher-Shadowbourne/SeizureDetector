@@ -20,6 +20,7 @@ class EventDatabaseMigrationTest {
 
     private val dbName = "migration_test.db"
     private val dbNameV2 = "migration_test_v2.db"
+    private val dbNameV3 = "migration_test_v3.db"
     private lateinit var context: Context
     private var database: EventDatabase? = null
 
@@ -28,8 +29,10 @@ class EventDatabaseMigrationTest {
         context = ApplicationProvider.getApplicationContext()
         context.deleteDatabase(dbName)
         context.deleteDatabase(dbNameV2)
+        context.deleteDatabase(dbNameV3)
         createVersion1Database()
         createVersion2Database()
+        createVersion3Database()
     }
 
     @After
@@ -37,12 +40,13 @@ class EventDatabaseMigrationTest {
         database?.close()
         context.deleteDatabase(dbName)
         context.deleteDatabase(dbNameV2)
+        context.deleteDatabase(dbNameV3)
     }
 
     @Test
     fun `migration 1 to 2 preserves existing rows and backfills defaults`() = runTest {
         database = Room.databaseBuilder(context, EventDatabase::class.java, dbName)
-            .addMigrations(EventDatabase.MIGRATION_1_2, EventDatabase.MIGRATION_2_3)
+            .addMigrations(EventDatabase.MIGRATION_1_2, EventDatabase.MIGRATION_2_3, EventDatabase.MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
 
@@ -53,6 +57,8 @@ class EventDatabaseMigrationTest {
         assertEquals(terminal.updatedAt, terminal.resolvedAt)
         assertEquals(false, terminal.deliveryAttempted)
         assertEquals(false, terminal.deliveryCompleted)
+        assertEquals(0, terminal.smsSuccessCount)
+        assertEquals(0, terminal.smsFailureCount)
         assertEquals(null, terminal.cancelSource)
         assertEquals(null, terminal.failureCategory)
 
@@ -61,12 +67,14 @@ class EventDatabaseMigrationTest {
         assertEquals(null, open!!.resolvedAt)
         assertEquals(false, open.deliveryAttempted)
         assertEquals(false, open.deliveryCompleted)
+        assertEquals(0, open.smsSuccessCount)
+        assertEquals(0, open.smsFailureCount)
     }
 
     @Test
     fun `migration 2 to 3 preserves rows and sets review defaults`() = runTest {
         database = Room.databaseBuilder(context, EventDatabase::class.java, dbNameV2)
-            .addMigrations(EventDatabase.MIGRATION_2_3)
+            .addMigrations(EventDatabase.MIGRATION_2_3, EventDatabase.MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
 
@@ -83,6 +91,25 @@ class EventDatabaseMigrationTest {
         assertEquals(null, row.medicationTaken)
         assertEquals(null, row.emergencyServicesContacted)
         assertEquals(null, row.recoveryDurationMinutes)
+        assertEquals(0, row.smsSuccessCount)
+        assertEquals(0, row.smsFailureCount)
+    }
+
+    @Test
+    fun `migration 3 to 4 preserves rows and sets sms count defaults`() = runTest {
+        database = Room.databaseBuilder(context, EventDatabase::class.java, dbNameV3)
+            .addMigrations(EventDatabase.MIGRATION_3_4)
+            .allowMainThreadQueries()
+            .build()
+
+        val dao = database!!.eventDao()
+        val row = dao.getEventById("old-v3")
+        assertNotNull(row)
+        assertEquals("watch", row!!.detectedBy)
+        assertEquals(AlertState.SMS_FAILED, row.alertState)
+        assertEquals("SMS_PROVIDER", row.failureCategory)
+        assertEquals(0, row.smsSuccessCount)
+        assertEquals(0, row.smsFailureCount)
     }
 
     private fun createVersion1Database() {
@@ -188,6 +215,65 @@ class EventDatabaseMigrationTest {
             """.trimIndent()
         )
         sqlite.version = 2
+        sqlite.close()
+    }
+
+    private fun createVersion3Database() {
+        val sqlite = context.openOrCreateDatabase(dbNameV3, Context.MODE_PRIVATE, null)
+        sqlite.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                eventId TEXT NOT NULL PRIMARY KEY,
+                detectedAt INTEGER NOT NULL,
+                detectedBy TEXT NOT NULL,
+                alertState TEXT NOT NULL,
+                countdownStartedAt INTEGER,
+                countdownDurationSeconds INTEGER NOT NULL,
+                cancelledAt INTEGER,
+                smsAttemptedAt INTEGER,
+                smsCompletedAt INTEGER,
+                smsSendResult TEXT,
+                smsRecipientCount INTEGER NOT NULL,
+                resolvedAt INTEGER,
+                cancelSource TEXT,
+                deliveryAttempted INTEGER NOT NULL DEFAULT 0,
+                deliveryCompleted INTEGER NOT NULL DEFAULT 0,
+                failureCategory TEXT,
+                reviewStatus TEXT DEFAULT 'NOT_REVIEWED',
+                eventCategory TEXT,
+                userNotes TEXT,
+                reviewedAt INTEGER,
+                injuryOccurred INTEGER,
+                medicationTaken INTEGER,
+                emergencyServicesContacted INTEGER,
+                recoveryDurationMinutes INTEGER,
+                locationIncluded INTEGER NOT NULL,
+                latitude REAL,
+                longitude REAL,
+                peakTriggerScore REAL,
+                accelMagnitude REAL,
+                gyroMagnitude REAL,
+                heartRate REAL,
+                pressure REAL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        sqlite.execSQL(
+            """
+            INSERT INTO events (
+                eventId, detectedAt, detectedBy, alertState, countdownDurationSeconds,
+                smsRecipientCount, deliveryAttempted, deliveryCompleted, failureCategory,
+                reviewStatus, locationIncluded, createdAt, updatedAt
+            ) VALUES (
+                'old-v3', 1003, 'watch', 'SMS_FAILED', 20,
+                2, 1, 1, 'SMS_PROVIDER',
+                'NOT_REVIEWED', 0, 2003, 3003
+            )
+            """.trimIndent()
+        )
+        sqlite.version = 3
         sqlite.close()
     }
 }

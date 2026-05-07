@@ -8,7 +8,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [EventEntity::class], version = 3, exportSchema = false)
+@Database(entities = [EventEntity::class], version = 4, exportSchema = false)
 abstract class EventDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
 
@@ -23,7 +23,7 @@ abstract class EventDatabase : RoomDatabase() {
                     EventDatabase::class.java,
                     "event_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 Log.d(TAG, "Created EventDatabase name=event_database")
@@ -60,6 +60,13 @@ abstract class EventDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE events ADD COLUMN emergencyServicesContacted INTEGER")
                 database.execSQL("ALTER TABLE events ADD COLUMN recoveryDurationMinutes INTEGER")
                 database.execSQL("UPDATE events SET reviewStatus = 'NOT_REVIEWED' WHERE reviewStatus IS NULL")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE events ADD COLUMN smsSuccessCount INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE events ADD COLUMN smsFailureCount INTEGER NOT NULL DEFAULT 0")
             }
         }
 

@@ -120,6 +120,7 @@ fun MainScreen(
         mutableStateOf(sharedPrefs.getStringSet("numbers", emptySet())?.toSet() ?: emptySet())
     }
     var newNumber by remember { mutableStateOf("") }
+    var contactsExpanded by remember { mutableStateOf(false) }
 
     fun saveContacts(newSet: Set<String>) {
         contactList = newSet
@@ -431,6 +432,25 @@ fun MainScreen(
                     }
                 }
             }
+            if (!serviceState.smsWarningMessage.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                GlassCard(modifier = Modifier.fillMaxWidth(), borderColor = ErrorColor.copy(alpha = 0.5f)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            PhoneAlertService.WARNING_SMS_NOT_SENT,
+                            color = ErrorColor,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            PhoneAlertService.WARNING_SMS_GUIDANCE,
+                            color = Color.White.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -457,8 +477,14 @@ fun MainScreen(
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Emergency Contacts", style = MaterialTheme.typography.titleLarge, color = Color.White)
-                        Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White.copy(alpha = 0.3f))
+                        Column {
+                            Text("Emergency contacts", style = MaterialTheme.typography.titleLarge, color = Color.White)
+                            val countLabel = if (contactList.isEmpty()) "No saved contacts" else "${contactList.size} saved"
+                            Text(countLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.6f))
+                        }
+                        TextButton(onClick = { contactsExpanded = !contactsExpanded }) {
+                            Text(if (contactsExpanded) "Hide contacts" else "Show contacts", color = AccentPrimary)
+                        }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     if (!isMonitoring) {
@@ -491,16 +517,18 @@ fun MainScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                     }
-                    contactList.forEach { number ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(number, color = Color.White, style = MaterialTheme.typography.bodyLarge)
-                            if (!isMonitoring) {
-                                IconButton(onClick = { saveContacts(contactList - number) }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = ErrorColor, modifier = Modifier.size(20.dp))
+                    if (contactsExpanded) {
+                        contactList.forEach { number ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(number.toMaskedPhoneNumber(), color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                                if (!isMonitoring) {
+                                    IconButton(onClick = { saveContacts(contactList - number) }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = ErrorColor, modifier = Modifier.size(20.dp))
+                                    }
                                 }
                             }
                         }
@@ -800,7 +828,11 @@ fun EventHistoryCard(
                     DetailRow("Category", event.eventCategory.toUiEventCategoryLabel())
                 }
                 if (event.smsRecipientCount > 0) {
-                    DetailRow("SMS Recipients", event.smsRecipientCount.toString())
+                    DetailRow("SMS attempted", event.smsRecipientCount.toString())
+                }
+                if (event.smsSuccessCount > 0 || event.smsFailureCount > 0) {
+                    DetailRow("SMS success", event.smsSuccessCount.toString())
+                    DetailRow("SMS failure", event.smsFailureCount.toString())
                 }
                 if (event.smsSendResult != null && event.smsSendResult != "SUCCESS") {
                     DetailRow("Error", event.smsSendResult)
@@ -1102,6 +1134,15 @@ private fun String.toUiCancelSourceLabel(): String =
         "system" -> "System"
         else -> "Unknown"
     }
+
+internal fun String.toMaskedPhoneNumber(): String {
+    val trimmed = trim()
+    val digits = trimmed.filter { it.isDigit() }
+    if (digits.length <= 4) return "••••"
+    val suffix = digits.takeLast(4)
+    val prefix = if (trimmed.startsWith("+")) "+" else ""
+    return "$prefix••••••$suffix"
+}
 
 @Preview(showBackground = true)
 @Composable

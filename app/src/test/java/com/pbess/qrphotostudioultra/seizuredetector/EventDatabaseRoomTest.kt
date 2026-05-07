@@ -55,6 +55,8 @@ class EventDatabaseRoomTest {
         assertEquals("NOT_REVIEWED", fetched?.reviewStatus)
         assertEquals(null, fetched?.eventCategory)
         assertEquals(null, fetched?.reviewedAt)
+        assertEquals(0, fetched?.smsSuccessCount)
+        assertEquals(0, fetched?.smsFailureCount)
 
         val observed = dao.observeRecentEvents(10).first()
         assertEquals(1, observed.size)

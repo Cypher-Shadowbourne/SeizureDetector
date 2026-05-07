@@ -81,7 +81,12 @@ class EventRepositoryTest {
         val existingEvent = EventEntity(eventId, 1000L, "watch", AlertState.SMS_PENDING, countdownDurationSeconds = 30)
         whenever(eventDao.getEventById(eventId)).thenReturn(existingEvent)
 
-        repository.markSmsSent(eventId, 2)
+        repository.markSmsSent(
+            eventId = eventId,
+            recipientCount = 2,
+            successCount = 2,
+            failureCount = 0
+        )
 
         val captor = argumentCaptor<EventEntity>()
         verify(eventDao).updateEvent(captor.capture())
@@ -89,6 +94,8 @@ class EventRepositoryTest {
         val captured = captor.firstValue
         assertEquals(AlertState.SMS_SENT, captured.alertState)
         assertEquals(2, captured.smsRecipientCount)
+        assertEquals(2, captured.smsSuccessCount)
+        assertEquals(0, captured.smsFailureCount)
         assertEquals("SUCCESS", captured.smsSendResult)
         assertEquals(true, captured.deliveryAttempted)
         assertEquals(true, captured.deliveryCompleted)
@@ -102,11 +109,12 @@ class EventRepositoryTest {
         val existingEvent = EventEntity(eventId, 1000L, "watch", AlertState.COUNTDOWN_STARTED, countdownDurationSeconds = 30)
         whenever(eventDao.getEventById(eventId)).thenReturn(existingEvent)
 
-        repository.markSmsPending(eventId)
+        repository.markSmsPending(eventId, 3)
 
         val captor = argumentCaptor<EventEntity>()
         verify(eventDao).updateEvent(captor.capture())
         assertEquals(true, captor.firstValue.deliveryAttempted)
+        assertEquals(3, captor.firstValue.smsRecipientCount)
     }
 
     @Test
@@ -115,7 +123,13 @@ class EventRepositoryTest {
         val existingEvent = EventEntity(eventId, 1000L, "watch", AlertState.SMS_PENDING, countdownDurationSeconds = 30)
         whenever(eventDao.getEventById(eventId)).thenReturn(existingEvent)
 
-        repository.markSmsFailed(eventId, "SMS_PROVIDER")
+        repository.markSmsFailed(
+            eventId = eventId,
+            failureCategory = "SMS_PROVIDER",
+            recipientCount = 3,
+            successCount = 1,
+            failureCount = 2
+        )
 
         val captor = argumentCaptor<EventEntity>()
         verify(eventDao).updateEvent(captor.capture())
@@ -124,6 +138,9 @@ class EventRepositoryTest {
         assertEquals(true, captured.deliveryAttempted)
         assertEquals(true, captured.deliveryCompleted)
         assertEquals("SMS_PROVIDER", captured.failureCategory)
+        assertEquals(3, captured.smsRecipientCount)
+        assertEquals(1, captured.smsSuccessCount)
+        assertEquals(2, captured.smsFailureCount)
     }
 
     @Test
@@ -143,6 +160,8 @@ class EventRepositoryTest {
             alertState = AlertState.SMS_SENT,
             countdownDurationSeconds = 30,
             smsRecipientCount = 2,
+            smsSuccessCount = 2,
+            smsFailureCount = 0,
             smsSendResult = "SUCCESS",
             deliveryAttempted = true,
             deliveryCompleted = true
@@ -176,6 +195,8 @@ class EventRepositoryTest {
         assertEquals(true, captured.deliveryCompleted)
         assertEquals("SUCCESS", captured.smsSendResult)
         assertEquals(2, captured.smsRecipientCount)
+        assertEquals(2, captured.smsSuccessCount)
+        assertEquals(0, captured.smsFailureCount)
     }
 
     @Test
@@ -188,6 +209,8 @@ class EventRepositoryTest {
             alertState = AlertState.SMS_FAILED,
             countdownDurationSeconds = 30,
             smsRecipientCount = 1,
+            smsSuccessCount = 0,
+            smsFailureCount = 1,
             smsSendResult = "SMS_PROVIDER",
             deliveryAttempted = true,
             deliveryCompleted = true,
@@ -220,5 +243,7 @@ class EventRepositoryTest {
         assertEquals(true, captured.deliveryCompleted)
         assertEquals("SMS_PROVIDER", captured.smsSendResult)
         assertEquals(1, captured.smsRecipientCount)
+        assertEquals(0, captured.smsSuccessCount)
+        assertEquals(1, captured.smsFailureCount)
     }
 }

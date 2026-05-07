@@ -27,6 +27,8 @@ data class EventEntity(
     val smsCompletedAt: Long? = null,
     val smsSendResult: String? = null,
     val smsRecipientCount: Int = 0,
+    val smsSuccessCount: Int = 0,
+    val smsFailureCount: Int = 0,
     val resolvedAt: Long? = null,
     val cancelSource: String? = null,
     val deliveryAttempted: Boolean = false,

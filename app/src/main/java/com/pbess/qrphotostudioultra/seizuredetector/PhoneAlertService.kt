@@ -25,6 +25,12 @@ import kotlin.coroutines.resume
  * The UI binds to this service and observes [state] to render alert UI.
  */
 class PhoneAlertService : Service() {
+    internal enum class SmsPrecheck {
+        PROCEED,
+        FAIL_NO_CONTACTS,
+        FAIL_SMS_PERMISSION,
+        SKIP_DUPLICATE
+    }
 
     // ── State ──────────────────────────────────────────────────────────────
 
@@ -32,7 +38,8 @@ class PhoneAlertService : Service() {
         val isAlertActive: Boolean = false,
         val eventId: String? = null,
         val countdown: Int = COUNTDOWN_SECONDS,
-        val isMonitoring: Boolean = false
+        val isMonitoring: Boolean = false,
+        val smsWarningMessage: String? = null
     )
 
     private val _state = MutableStateFlow(ServiceState())
@@ -50,6 +57,7 @@ class PhoneAlertService : Service() {
     private lateinit var vibrationController: PhoneVibrationController
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var repository: EventRepository? = null
+    private val smsDispatchedEventIds = mutableSetOf<String>()
 
     override fun onCreate() {
         super.onCreate()
@@ -111,7 +119,14 @@ class PhoneAlertService : Service() {
             return
         }
         Log.d(EVENT_FLOW_TAG, "starting alert eventId=$eventId")
-        _state.update { it.copy(isAlertActive = true, eventId = eventId, countdown = COUNTDOWN_SECONDS) }
+        _state.update {
+            it.copy(
+                isAlertActive = true,
+                eventId = eventId,
+                countdown = COUNTDOWN_SECONDS,
+                smsWarningMessage = null
+            )
+        }
         serviceScope.launch {
             repository?.createDetectedEvent(
                 eventId = eventId,
@@ -140,7 +155,7 @@ class PhoneAlertService : Service() {
         current.eventId?.let { id ->
             serviceScope.launch { repository?.markCancelled(id, cancelSource) }
         }
-        _state.update { it.copy(isAlertActive = false, eventId = null) }
+        _state.update { it.copy(isAlertActive = false, eventId = null, smsWarningMessage = null) }
         updateNotification()
         if (!_state.value.isMonitoring) stopSelf()
     }
@@ -177,15 +192,46 @@ class PhoneAlertService : Service() {
     private suspend fun dispatchSmsAlert() {
         val eventId = _state.value.eventId ?: return
         val contacts = getContacts()
-        if (contacts.isEmpty()) {
-            Log.w(TAG, "No contacts — SMS not sent")
-            Log.d(EVENT_FLOW_TAG, "sms failed no contacts eventId=$eventId")
-            repository?.markSmsFailed(eventId, FAILURE_NO_CONTACTS)
-            return
+        val hasSmsPermission = ActivityCompat.checkSelfPermission(
+            this@PhoneAlertService,
+            android.Manifest.permission.SEND_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+        when (evaluateSmsPrecheck(eventId, contacts, hasSmsPermission, smsDispatchedEventIds)) {
+            SmsPrecheck.SKIP_DUPLICATE -> {
+                Log.w(EVENT_FLOW_TAG, "duplicate sms dispatch skipped eventId=$eventId")
+                return
+            }
+            SmsPrecheck.FAIL_NO_CONTACTS -> {
+                Log.w(TAG, "No contacts — SMS not sent")
+                repository?.markSmsFailed(
+                    eventId = eventId,
+                    failureCategory = FAILURE_NO_CONTACTS,
+                    recipientCount = 0,
+                    successCount = 0,
+                    failureCount = 0
+                )
+                publishSmsFailureWarning()
+                smsDispatchedEventIds.add(eventId)
+                return
+            }
+            SmsPrecheck.FAIL_SMS_PERMISSION -> {
+                Log.w(TAG, "SMS permission missing — SMS not sent")
+                repository?.markSmsFailed(
+                    eventId = eventId,
+                    failureCategory = FAILURE_SMS_PERMISSION,
+                    recipientCount = contacts.size,
+                    successCount = 0,
+                    failureCount = contacts.size
+                )
+                publishSmsFailureWarning()
+                smsDispatchedEventIds.add(eventId)
+                return
+            }
+            SmsPrecheck.PROCEED -> Unit
         }
 
         Log.d(EVENT_FLOW_TAG, "sms pending eventId=$eventId")
-        repository?.markSmsPending(eventId)
+        repository?.markSmsPending(eventId, contacts.size)
 
         // withTimeoutOrNull eliminates the Boolean race from the original implementation.
         // If location resolves within 5s the message includes it; otherwise empty string.
@@ -223,29 +269,53 @@ class PhoneAlertService : Service() {
 
         val smsManager = getSmsManager() ?: run {
             Log.e(TAG, "Could not obtain SmsManager")
-            repository?.markSmsFailed(eventId, FAILURE_SMS_PROVIDER)
+            repository?.markSmsFailed(
+                eventId = eventId,
+                failureCategory = FAILURE_SMS_PROVIDER,
+                recipientCount = contacts.size,
+                successCount = 0,
+                failureCount = contacts.size
+            )
+            publishSmsFailureWarning()
+            smsDispatchedEventIds.add(eventId)
             return
         }
         var sentCount = 0
+        var failedCount = 0
         var lastError: String? = null
         contacts.forEach { number ->
             try {
                 smsManager.sendTextMessage(number, null, message, null, null)
-                Log.d(TAG, "SMS sent to $number")
+                Log.d(TAG, "SMS sent to emergency contact")
                 sentCount++
             } catch (e: Exception) {
-                Log.e(TAG, "SMS failed to $number", e)
-                lastError = if (e is SecurityException) FAILURE_SMS_PERMISSION else FAILURE_SMS_PROVIDER
+                Log.e(TAG, "SMS failed for emergency contact", e)
+                failedCount++
+                lastError = mapSmsExceptionToFailureCategory(e)
             }
         }
         if (sentCount > 0) {
             Log.d(EVENT_FLOW_TAG, "sms sent eventId=$eventId recipients=$sentCount")
-            repository?.markSmsSent(eventId, sentCount)
+            repository?.markSmsSent(
+                eventId = eventId,
+                recipientCount = contacts.size,
+                successCount = sentCount,
+                failureCount = failedCount
+            )
+            clearSmsFailureWarning()
         } else {
             val category = lastError ?: FAILURE_UNKNOWN
             Log.d(EVENT_FLOW_TAG, "sms failed eventId=$eventId failureCategory=$category")
-            repository?.markSmsFailed(eventId, category)
+            repository?.markSmsFailed(
+                eventId = eventId,
+                failureCategory = category,
+                recipientCount = contacts.size,
+                successCount = sentCount,
+                failureCount = if (failedCount == 0) contacts.size else failedCount
+            )
+            publishSmsFailureWarning()
         }
+        smsDispatchedEventIds.add(eventId)
     }
 
     private suspend fun fetchLocationString(): String =
@@ -330,10 +400,27 @@ class PhoneAlertService : Service() {
         val current = _state.value
         val content = when {
             current.isAlertActive -> "ALERT IN ${current.countdown}s — tap to open"
+            current.smsWarningMessage != null -> WARNING_SMS_NOT_SENT
             current.isMonitoring -> "Monitoring active"
             else -> "Ready"
         }
         startForegroundCompat(buildNotification(content))
+    }
+
+    private fun publishSmsFailureWarning() {
+        _state.update {
+            it.copy(
+                smsWarningMessage = WARNING_SMS_NOT_SENT
+            )
+        }
+        updateNotification()
+    }
+
+    private fun clearSmsFailureWarning() {
+        _state.update {
+            it.copy(smsWarningMessage = null)
+        }
+        updateNotification()
     }
 
     private fun startForegroundCompat(notification: Notification) {
@@ -354,6 +441,25 @@ class PhoneAlertService : Service() {
     // ── Companion (static helpers for callers) ─────────────────────────────
 
     companion object {
+        internal fun evaluateSmsPrecheck(
+            eventId: String,
+            contacts: Set<String>,
+            hasSmsPermission: Boolean,
+            alreadyDispatchedEventIds: Set<String>
+        ): SmsPrecheck {
+            if (alreadyDispatchedEventIds.contains(eventId)) return SmsPrecheck.SKIP_DUPLICATE
+            if (contacts.isEmpty()) return SmsPrecheck.FAIL_NO_CONTACTS
+            if (!hasSmsPermission) return SmsPrecheck.FAIL_SMS_PERMISSION
+            return SmsPrecheck.PROCEED
+        }
+
+        internal fun mapSmsExceptionToFailureCategory(error: Throwable?): String =
+            when (error) {
+                is SecurityException -> FAILURE_SMS_PERMISSION
+                null -> FAILURE_UNKNOWN
+                else -> FAILURE_SMS_PROVIDER
+            }
+
         private const val TAG = "PhoneAlertService"
         private const val EVENT_FLOW_TAG = "EventFlow"
         private const val NOTIFICATION_ID = 10
@@ -376,6 +482,8 @@ class PhoneAlertService : Service() {
         const val FAILURE_SMS_PERMISSION = "SMS_PERMISSION"
         const val FAILURE_SMS_PROVIDER = "SMS_PROVIDER"
         const val FAILURE_UNKNOWN = "UNKNOWN"
+        const val WARNING_SMS_NOT_SENT = "Emergency SMS may not have been sent"
+        const val WARNING_SMS_GUIDANCE = "Check SMS permission and emergency contacts"
 
         fun startAlert(context: Context, eventId: String) {
             val intent = Intent(context, PhoneAlertService::class.java).apply {

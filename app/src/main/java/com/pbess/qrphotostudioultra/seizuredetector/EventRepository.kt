@@ -58,23 +58,31 @@ class EventRepository(private val eventDao: EventDao) {
         }
     }
 
-    suspend fun markSmsPending(eventId: String) {
-        logD("markSmsPending called eventId=$eventId")
+    suspend fun markSmsPending(eventId: String, recipientCount: Int) {
+        logD("markSmsPending called eventId=$eventId recipients=$recipientCount")
         updateState(eventId, AlertState.SMS_PENDING) {
             it.copy(
                 smsAttemptedAt = System.currentTimeMillis(),
+                smsRecipientCount = recipientCount,
                 deliveryAttempted = true
             )
         }
     }
 
-    suspend fun markSmsSent(eventId: String, recipientCount: Int) {
-        logD("markSmsSent called eventId=$eventId recipients=$recipientCount")
+    suspend fun markSmsSent(
+        eventId: String,
+        recipientCount: Int,
+        successCount: Int,
+        failureCount: Int
+    ) {
+        logD("markSmsSent called eventId=$eventId recipients=$recipientCount success=$successCount failure=$failureCount")
         updateState(eventId, AlertState.SMS_SENT) {
             val now = System.currentTimeMillis()
             it.copy(
                 smsCompletedAt = now,
                 smsRecipientCount = recipientCount,
+                smsSuccessCount = successCount,
+                smsFailureCount = failureCount,
                 smsSendResult = "SUCCESS",
                 deliveryAttempted = true,
                 deliveryCompleted = true,
@@ -84,12 +92,21 @@ class EventRepository(private val eventDao: EventDao) {
         }
     }
 
-    suspend fun markSmsFailed(eventId: String, failureCategory: String) {
-        logD("markSmsFailed called eventId=$eventId failureCategory=$failureCategory")
+    suspend fun markSmsFailed(
+        eventId: String,
+        failureCategory: String,
+        recipientCount: Int,
+        successCount: Int,
+        failureCount: Int
+    ) {
+        logD("markSmsFailed called eventId=$eventId failureCategory=$failureCategory recipients=$recipientCount success=$successCount failure=$failureCount")
         updateState(eventId, AlertState.SMS_FAILED) {
             val now = System.currentTimeMillis()
             it.copy(
                 smsCompletedAt = now,
+                smsRecipientCount = recipientCount,
+                smsSuccessCount = successCount,
+                smsFailureCount = failureCount,
                 smsSendResult = failureCategory,
                 deliveryAttempted = true,
                 deliveryCompleted = true,
