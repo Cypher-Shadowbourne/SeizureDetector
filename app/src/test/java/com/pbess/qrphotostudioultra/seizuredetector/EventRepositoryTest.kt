@@ -132,4 +132,93 @@ class EventRepositoryTest {
         repository.createDetectedEvent("dup-id", 1000L, "watch", 20)
         verify(eventDao).insertEvent(any())
     }
+
+    @Test
+    fun `markReviewed stores review fields and keeps alert and sms fields unchanged`() = runTest {
+        val eventId = "review-id"
+        val existingEvent = EventEntity(
+            eventId = eventId,
+            detectedAt = 1000L,
+            detectedBy = "watch",
+            alertState = AlertState.SMS_SENT,
+            countdownDurationSeconds = 30,
+            smsRecipientCount = 2,
+            smsSendResult = "SUCCESS",
+            deliveryAttempted = true,
+            deliveryCompleted = true
+        )
+        whenever(eventDao.getEventById(eventId)).thenReturn(existingEvent)
+
+        repository.markReviewed(
+            eventId = eventId,
+            reviewStatus = "REAL_EVENT",
+            eventCategory = "POSSIBLE_SEIZURE",
+            userNotes = "Recovered after rest",
+            injuryOccurred = true,
+            medicationTaken = false,
+            emergencyServicesContacted = false,
+            recoveryDurationMinutes = 15
+        )
+
+        val captor = argumentCaptor<EventEntity>()
+        verify(eventDao).updateEvent(captor.capture())
+        val captured = captor.firstValue
+        assertEquals("REAL_EVENT", captured.reviewStatus)
+        assertEquals("POSSIBLE_SEIZURE", captured.eventCategory)
+        assertEquals("Recovered after rest", captured.userNotes)
+        assertEquals(true, captured.injuryOccurred)
+        assertEquals(false, captured.medicationTaken)
+        assertEquals(false, captured.emergencyServicesContacted)
+        assertEquals(15, captured.recoveryDurationMinutes)
+        assertNotNull(captured.reviewedAt)
+        assertEquals(AlertState.SMS_SENT, captured.alertState)
+        assertEquals(true, captured.deliveryAttempted)
+        assertEquals(true, captured.deliveryCompleted)
+        assertEquals("SUCCESS", captured.smsSendResult)
+        assertEquals(2, captured.smsRecipientCount)
+    }
+
+    @Test
+    fun `clearReview resets review fields only`() = runTest {
+        val eventId = "review-clear-id"
+        val existingEvent = EventEntity(
+            eventId = eventId,
+            detectedAt = 1000L,
+            detectedBy = "watch",
+            alertState = AlertState.SMS_FAILED,
+            countdownDurationSeconds = 30,
+            smsRecipientCount = 1,
+            smsSendResult = "SMS_PROVIDER",
+            deliveryAttempted = true,
+            deliveryCompleted = true,
+            reviewStatus = "UNSURE",
+            eventCategory = "UNKNOWN",
+            userNotes = "Not clear",
+            reviewedAt = 2000L,
+            injuryOccurred = true,
+            medicationTaken = true,
+            emergencyServicesContacted = false,
+            recoveryDurationMinutes = 22
+        )
+        whenever(eventDao.getEventById(eventId)).thenReturn(existingEvent)
+
+        repository.clearReview(eventId)
+
+        val captor = argumentCaptor<EventEntity>()
+        verify(eventDao).updateEvent(captor.capture())
+        val captured = captor.firstValue
+        assertEquals("NOT_REVIEWED", captured.reviewStatus)
+        assertEquals(null, captured.eventCategory)
+        assertEquals(null, captured.userNotes)
+        assertEquals(null, captured.reviewedAt)
+        assertEquals(null, captured.injuryOccurred)
+        assertEquals(null, captured.medicationTaken)
+        assertEquals(null, captured.emergencyServicesContacted)
+        assertEquals(null, captured.recoveryDurationMinutes)
+        assertEquals(AlertState.SMS_FAILED, captured.alertState)
+        assertEquals(true, captured.deliveryAttempted)
+        assertEquals(true, captured.deliveryCompleted)
+        assertEquals("SMS_PROVIDER", captured.smsSendResult)
+        assertEquals(1, captured.smsRecipientCount)
+    }
 }

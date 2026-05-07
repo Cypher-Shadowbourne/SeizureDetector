@@ -52,6 +52,9 @@ class EventDatabaseRoomTest {
         val fetched = dao.getEventById(eventId)
         assertNotNull(fetched)
         assertEquals(eventId, fetched?.eventId)
+        assertEquals("NOT_REVIEWED", fetched?.reviewStatus)
+        assertEquals(null, fetched?.eventCategory)
+        assertEquals(null, fetched?.reviewedAt)
 
         val observed = dao.observeRecentEvents(10).first()
         assertEquals(1, observed.size)

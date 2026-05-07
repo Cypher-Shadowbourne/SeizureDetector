@@ -615,7 +615,33 @@ fun MainScreen(
                 }
             } else {
                 eventHistory.forEach { event ->
-                    EventHistoryCard(event)
+                    EventHistoryCard(
+                        event = event,
+                        onSaveReview = { eventId, reviewStatus, eventCategory, userNotes, injuryOccurred, medicationTaken, emergencyServicesContacted, recoveryDurationMinutes ->
+                            val safeRecoveryDuration = recoveryDurationMinutes?.takeIf { it >= 0 }
+                            scope.launch {
+                                eventRepository?.markReviewed(
+                                    eventId = eventId,
+                                    reviewStatus = reviewStatus,
+                                    eventCategory = eventCategory,
+                                    userNotes = userNotes,
+                                    injuryOccurred = injuryOccurred,
+                                    medicationTaken = medicationTaken,
+                                    emergencyServicesContacted = emergencyServicesContacted,
+                                    recoveryDurationMinutes = safeRecoveryDuration
+                                )
+                            }
+                            if (recoveryDurationMinutes != null && safeRecoveryDuration == null) {
+                                Toast.makeText(context, "Recovery duration must be empty or >= 0", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Review saved", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onClearReview = { eventId ->
+                            scope.launch { eventRepository?.clearReview(eventId) }
+                            Toast.makeText(context, "Review cleared", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
@@ -676,8 +702,42 @@ fun SexyButton(text: String, onClick: () -> Unit, brush: Brush, modifier: Modifi
 }
 
 @Composable
-fun EventHistoryCard(event: EventEntity) {
+fun EventHistoryCard(
+    event: EventEntity,
+    onSaveReview: (
+        eventId: String,
+        reviewStatus: String,
+        eventCategory: String?,
+        userNotes: String?,
+        injuryOccurred: Boolean?,
+        medicationTaken: Boolean?,
+        emergencyServicesContacted: Boolean?,
+        recoveryDurationMinutes: Int?
+    ) -> Unit,
+    onClearReview: (eventId: String) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
+    var reviewStatus by remember(event.eventId, event.reviewStatus) {
+        mutableStateOf(event.reviewStatus ?: "NOT_REVIEWED")
+    }
+    var eventCategory by remember(event.eventId, event.eventCategory) {
+        mutableStateOf(event.eventCategory)
+    }
+    var injuryOccurred by remember(event.eventId, event.injuryOccurred) {
+        mutableStateOf(event.injuryOccurred)
+    }
+    var medicationTaken by remember(event.eventId, event.medicationTaken) {
+        mutableStateOf(event.medicationTaken)
+    }
+    var emergencyServicesContacted by remember(event.eventId, event.emergencyServicesContacted) {
+        mutableStateOf(event.emergencyServicesContacted)
+    }
+    var recoveryDurationInput by remember(event.eventId, event.recoveryDurationMinutes) {
+        mutableStateOf(event.recoveryDurationMinutes?.toString() ?: "")
+    }
+    var userNotes by remember(event.eventId, event.userNotes) {
+        mutableStateOf(event.userNotes ?: "")
+    }
     val timeStr = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(event.detectedAt))
 
     GlassCard(
@@ -733,6 +793,12 @@ fun EventHistoryCard(event: EventEntity) {
                 if (event.alertState == AlertState.CANCELLED_BY_USER && event.cancelSource != null) {
                     DetailRow("Cancelled by", event.cancelSource.toUiCancelSourceLabel())
                 }
+                if (!event.reviewStatus.isNullOrBlank()) {
+                    DetailRow("Review", event.reviewStatus.toUiReviewStatusLabel())
+                }
+                if (!event.eventCategory.isNullOrBlank()) {
+                    DetailRow("Category", event.eventCategory.toUiEventCategoryLabel())
+                }
                 if (event.smsRecipientCount > 0) {
                     DetailRow("SMS Recipients", event.smsRecipientCount.toString())
                 }
@@ -743,7 +809,6 @@ fun EventHistoryCard(event: EventEntity) {
                     DetailRow("Failure", event.failureCategory)
                 }
                 if (event.locationIncluded && event.latitude != null && event.longitude != null) {
-                    val locationUrl = "https://www.google.com/maps/search/?api=1&query=${event.latitude},${event.longitude}"
                     DetailRow("Location", "Available")
                     Text(
                         text = "View on Map",
@@ -756,7 +821,144 @@ fun EventHistoryCard(event: EventEntity) {
                             }
                     )
                 }
-                
+                if (event.reviewedAt != null) {
+                    val reviewedStr = java.text.DateFormat.getDateTimeInstance()
+                        .format(java.util.Date(event.reviewedAt))
+                    DetailRow("Reviewed", reviewedStr)
+                }
+                if (event.recoveryDurationMinutes != null) {
+                    DetailRow("Recovery", "${event.recoveryDurationMinutes} min")
+                }
+                if (!event.userNotes.isNullOrBlank()) {
+                    DetailRow("Notes", event.userNotes)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Post-event review",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text("Review status", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
+                ReviewStatusOptions(
+                    selected = reviewStatus,
+                    onSelected = { selected ->
+                        reviewStatus = selected
+                        if (selected == "UNSURE" && eventCategory == null) {
+                            eventCategory = "UNKNOWN"
+                        }
+                        if (selected == "FALSE_ALARM" && eventCategory == "UNKNOWN") {
+                            eventCategory = "OTHER"
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Event category", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
+                EventCategoryOptions(
+                    selected = eventCategory,
+                    onSelected = { eventCategory = it }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                ReviewCheckboxRow("Injury occurred", injuryOccurred == true) { injuryOccurred = it }
+                ReviewCheckboxRow("Medication taken", medicationTaken == true) { medicationTaken = it }
+                ReviewCheckboxRow("Emergency services contacted", emergencyServicesContacted == true) { emergencyServicesContacted = it }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = recoveryDurationInput,
+                    onValueChange = { value ->
+                        if (value.isEmpty() || value.all { it.isDigit() }) {
+                            recoveryDurationInput = value
+                        }
+                    },
+                    label = { Text("Recovery duration (minutes)") },
+                    placeholder = { Text("Optional") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = AccentPrimary,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                        focusedLabelColor = AccentPrimary,
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.6f)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = userNotes,
+                    onValueChange = { userNotes = it },
+                    label = { Text("Notes") },
+                    placeholder = { Text("Optional") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 4,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = AccentPrimary,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                        focusedLabelColor = AccentPrimary,
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.6f)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val parsedRecovery = recoveryDurationInput.toIntOrNull()
+                            val normalizedCategory = when {
+                                reviewStatus == "UNSURE" && eventCategory == null -> "UNKNOWN"
+                                reviewStatus == "FALSE_ALARM" && eventCategory == "UNKNOWN" -> "OTHER"
+                                else -> eventCategory
+                            }
+                            onSaveReview(
+                                event.eventId,
+                                reviewStatus,
+                                normalizedCategory,
+                                userNotes.takeIf { it.isNotBlank() },
+                                injuryOccurred,
+                                medicationTaken,
+                                emergencyServicesContacted,
+                                parsedRecovery
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Save review")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            reviewStatus = "NOT_REVIEWED"
+                            eventCategory = null
+                            userNotes = ""
+                            injuryOccurred = null
+                            medicationTaken = null
+                            emergencyServicesContacted = null
+                            recoveryDurationInput = ""
+                            onClearReview(event.eventId)
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Clear review")
+                    }
+                }
+
                 Text(
                     text = "This is a recorded event summary. No medical diagnosis is implied.",
                     style = MaterialTheme.typography.labelSmall,
@@ -766,6 +968,87 @@ fun EventHistoryCard(event: EventEntity) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ReviewStatusOptions(selected: String, onSelected: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        ReviewOptionRow(
+            label = "Reviewed as real event",
+            selected = selected == "REAL_EVENT",
+            onClick = { onSelected("REAL_EVENT") }
+        )
+        ReviewOptionRow(
+            label = "Marked false alarm",
+            selected = selected == "FALSE_ALARM",
+            onClick = { onSelected("FALSE_ALARM") }
+        )
+        ReviewOptionRow(
+            label = "Unsure",
+            selected = selected == "UNSURE",
+            onClick = { onSelected("UNSURE") }
+        )
+    }
+}
+
+@Composable
+private fun EventCategoryOptions(selected: String?, onSelected: (String?) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        EventCategoryOption("POSSIBLE_SEIZURE", "Possible seizure", selected, onSelected)
+        EventCategoryOption("FALL_OR_IMPACT", "Fall or impact", selected, onSelected)
+        EventCategoryOption("TREMOR_OR_SHAKING", "Tremor or shaking", selected, onSelected)
+        EventCategoryOption("EXERCISE_OR_MOVEMENT", "Exercise or movement", selected, onSelected)
+        EventCategoryOption("SLEEP_MOVEMENT", "Sleep movement", selected, onSelected)
+        EventCategoryOption("OTHER", "Other", selected, onSelected)
+    }
+}
+
+@Composable
+private fun EventCategoryOption(
+    value: String,
+    label: String,
+    selected: String?,
+    onSelected: (String?) -> Unit
+) {
+    ReviewOptionRow(
+        label = label,
+        selected = selected == value,
+        onClick = { onSelected(value) }
+    )
+}
+
+@Composable
+private fun ReviewOptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick
+        )
+        Text(label, color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ReviewCheckboxRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+        Text(label, color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -790,6 +1073,26 @@ private fun AlertState.toUiLabel(): String =
         AlertState.SMS_FAILED -> "SMS failed"
         AlertState.EXPIRED -> "Expired"
         AlertState.UNKNOWN_FAILURE -> "Issue recorded"
+    }
+
+private fun String.toUiReviewStatusLabel(): String =
+    when (this) {
+        "REAL_EVENT" -> "Reviewed as real event"
+        "FALSE_ALARM" -> "Marked false alarm"
+        "UNSURE" -> "Unsure"
+        else -> "Not reviewed"
+    }
+
+private fun String.toUiEventCategoryLabel(): String =
+    when (this) {
+        "POSSIBLE_SEIZURE" -> "Possible seizure"
+        "FALL_OR_IMPACT" -> "Fall or impact"
+        "TREMOR_OR_SHAKING" -> "Tremor or shaking"
+        "EXERCISE_OR_MOVEMENT" -> "Exercise or movement"
+        "SLEEP_MOVEMENT" -> "Sleep movement"
+        "OTHER" -> "Other"
+        "UNKNOWN" -> "Unknown"
+        else -> "Unknown"
     }
 
 private fun String.toUiCancelSourceLabel(): String =
