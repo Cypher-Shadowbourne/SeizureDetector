@@ -16,6 +16,8 @@ build/
 /captures
 captures/
 *.log
+phone_*.xml
+watch_*.xml
 .externalNativeBuild
 .cxx
 local.properties
