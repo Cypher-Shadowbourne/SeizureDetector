@@ -8,7 +8,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.pbess.qrphotostudioultra.seizuredetector.wear"
+        applicationId = "com.pbess.qrphotostudioultra.seizuredetector"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

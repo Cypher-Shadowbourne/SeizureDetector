@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">SeizureDetector</string>
+    <string name="notification_channel_name">Seizure Detection Service</string>
+    <string name="notification_channel_description">Keeps the seizure detection service running in the background</string>
+    <string name="notification_title">Seizure Detector</string>
+    <string name="notification_content_monitoring">Monitoring for seizure activity…</string>
+    <string name="notification_content_init">Initialising seizure monitoring…</string>
 </resources>

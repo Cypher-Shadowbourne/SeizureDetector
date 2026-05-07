@@ -1,3 +1,13 @@
 <resources>
     <string name="app_name">SeizureDetector</string>
+
+    <!-- Alert notification -->
+    <string name="alert_notification_channel_name">Seizure Alerts</string>
+    <string name="alert_notification_title">Seizure Detected!</string>
+    <string name="alert_notification_text">Seizure activity has been detected. Tap to open and manage.</string>
+
+    <!-- Battery optimisation prompt -->
+    <string name="battery_optimization_title">Battery Optimisation Active</string>
+    <string name="battery_optimization_desc">For reliable background monitoring, disable battery optimisation for this app.</string>
+    <string name="battery_optimization_button">Disable Battery Optimisation</string>
 </resources>
