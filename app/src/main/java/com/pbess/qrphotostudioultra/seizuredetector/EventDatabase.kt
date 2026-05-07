@@ -8,7 +8,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [EventEntity::class], version = 2, exportSchema = false)
+@Database(entities = [EventEntity::class], version = 3, exportSchema = false)
 abstract class EventDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
 
@@ -23,7 +23,7 @@ abstract class EventDatabase : RoomDatabase() {
                     EventDatabase::class.java,
                     "event_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 Log.d(TAG, "Created EventDatabase name=event_database")
@@ -46,6 +46,20 @@ abstract class EventDatabase : RoomDatabase() {
                     AND alertState IN ('CANCELLED_BY_USER', 'SMS_SENT', 'SMS_FAILED', 'EXPIRED', 'UNKNOWN_FAILURE')
                     """.trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE events ADD COLUMN reviewStatus TEXT DEFAULT 'NOT_REVIEWED'")
+                database.execSQL("ALTER TABLE events ADD COLUMN eventCategory TEXT")
+                database.execSQL("ALTER TABLE events ADD COLUMN userNotes TEXT")
+                database.execSQL("ALTER TABLE events ADD COLUMN reviewedAt INTEGER")
+                database.execSQL("ALTER TABLE events ADD COLUMN injuryOccurred INTEGER")
+                database.execSQL("ALTER TABLE events ADD COLUMN medicationTaken INTEGER")
+                database.execSQL("ALTER TABLE events ADD COLUMN emergencyServicesContacted INTEGER")
+                database.execSQL("ALTER TABLE events ADD COLUMN recoveryDurationMinutes INTEGER")
+                database.execSQL("UPDATE events SET reviewStatus = 'NOT_REVIEWED' WHERE reviewStatus IS NULL")
             }
         }
 

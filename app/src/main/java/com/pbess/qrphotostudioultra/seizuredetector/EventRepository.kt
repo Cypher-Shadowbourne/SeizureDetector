@@ -99,6 +99,67 @@ class EventRepository(private val eventDao: EventDao) {
         }
     }
 
+    suspend fun markReviewed(
+        eventId: String,
+        reviewStatus: String,
+        eventCategory: String?,
+        userNotes: String?,
+        injuryOccurred: Boolean?,
+        medicationTaken: Boolean?,
+        emergencyServicesContacted: Boolean?,
+        recoveryDurationMinutes: Int?
+    ) {
+        val event = eventDao.getEventById(eventId)
+        if (event == null) {
+            logE("markReviewed missing event eventId=$eventId")
+            return
+        }
+        val rows = eventDao.updateEvent(
+            event.copy(
+                reviewStatus = reviewStatus,
+                eventCategory = eventCategory,
+                userNotes = userNotes,
+                reviewedAt = System.currentTimeMillis(),
+                injuryOccurred = injuryOccurred,
+                medicationTaken = medicationTaken,
+                emergencyServicesContacted = emergencyServicesContacted,
+                recoveryDurationMinutes = recoveryDurationMinutes,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        if (rows == 0) {
+            logE("markReviewed updated 0 rows eventId=$eventId")
+        } else {
+            logD("markReviewed success eventId=$eventId reviewStatus=$reviewStatus")
+        }
+    }
+
+    suspend fun clearReview(eventId: String) {
+        val event = eventDao.getEventById(eventId)
+        if (event == null) {
+            logE("clearReview missing event eventId=$eventId")
+            return
+        }
+        val rows = eventDao.updateEvent(
+            event.copy(
+                reviewStatus = "NOT_REVIEWED",
+                eventCategory = null,
+                userNotes = null,
+                reviewedAt = null,
+                injuryOccurred = null,
+                medicationTaken = null,
+                emergencyServicesContacted = null,
+                recoveryDurationMinutes = null,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        if (rows == 0) {
+            logE("clearReview updated 0 rows eventId=$eventId")
+        } else {
+            logD("clearReview success eventId=$eventId")
+        }
+    }
+
     suspend fun updateLocation(eventId: String, latitude: Double, longitude: Double) {
         val event = eventDao.getEventById(eventId)
         if (event != null) {
